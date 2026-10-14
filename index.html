@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Catch The Food Game!</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&display=swap');
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 22px;
+      font-family: 'Baloo 2', 'Trebuchet MS', sans-serif; color: #45205f;
+      background: radial-gradient(circle at 12% 15%, #fff5a8 0 7%, transparent 7.5%),
+                  radial-gradient(circle at 90% 18%, #ffc7e8 0 8%, transparent 8.5%),
+                  radial-gradient(circle at 12% 90%, #b8fff0 0 9%, transparent 9.5%),
+                  linear-gradient(135deg, #ffb5d8 0%, #c7b6ff 48%, #8de8f0 100%);
+      background-attachment: fixed;
+    }
+    .game {
+      width: min(100%, 780px); padding: 26px; border-radius: 30px;
+      background: rgba(255,255,255,.86); border: 3px solid rgba(255,255,255,.9);
+      box-shadow: 0 22px 0 rgba(115, 65, 170, .13), 0 28px 70px rgba(91, 42, 135, .25);
+      backdrop-filter: blur(12px);
+    }
+    h1 { text-align: center; margin: 0; font-size: clamp(2rem, 5vw, 3rem); line-height: 1.15;
+      color: #7c35bf; text-shadow: 2px 3px 0 #ffe08a; }
+    .subtitle { text-align: center; margin: 8px 0 20px; color: #875a9e; font-size: 1.1rem; }
+    .hud { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+    .hud span { padding: 8px 20px; border-radius: 999px; color: white; font-size: 1.1rem;
+      background: linear-gradient(135deg, #ff6eae, #ff9a68); box-shadow: 0 5px 0 #e95a98; }
+    .hud span + span { background: linear-gradient(135deg, #6b65ed, #a16bf0); box-shadow: 0 5px 0 #6752c5; }
+    canvas { display: block; width: 100%; height: auto; border: 5px solid white; border-radius: 22px;
+      background: linear-gradient(#baf7ff, #e9ffce); box-shadow: 0 8px 0 #d8c7ff, 0 12px 24px rgba(83,54,130,.15); }
+    .controls { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 23px; }
+    button { border: 0; border-radius: 15px; padding: 12px 20px; font: 700 1.05rem 'Baloo 2', sans-serif;
+      cursor: pointer; color: white; background: linear-gradient(135deg, #ff5ea8, #ff8a68);
+      box-shadow: 0 5px 0 #d94d91; transition: transform .15s, filter .15s; }
+    button:hover { filter: brightness(1.07); transform: translateY(-2px); }
+    button:active { transform: translateY(2px); box-shadow: 0 2px 0 #d94d91; }
+    button.secondary { color: #4c348b; background: linear-gradient(135deg, #fff3a8, #ffd0e9); box-shadow: 0 5px 0 #d8a9d6; }
+    #start { background: linear-gradient(135deg, #37cfa0, #20a9db); box-shadow: 0 5px 0 #168da4; }
+    #restart { background: linear-gradient(135deg, #a276ff, #6d78f7); box-shadow: 0 5px 0 #6553c6; color: white; }
+    .message { min-height: 34px; text-align: center; margin-top: 16px; font-size: 1.15rem; font-weight: 800; color: #7c35bf; }
+    .help { text-align: center; color: #815d96; font-size: .98rem; margin: 12px 0 0; }
+    @media (max-width: 520px) { .game { padding: 16px; border-radius: 22px; } button { padding: 10px 14px; } }
+  </style>
+</head>
+<body>
+  <main class="game">
+    <h1>🍩 Catch The Food Game!</h1>
+    <p class="subtitle">Catch the donuts and dodge the bombs!</p>
+
+    <div class="hud">
+      <span>Score: <span id="score">0</span></span>
+      <span>Time Left: <span id="time">30</span>s</span>
+    </div>
+
+    <canvas id="board" width="600" height="500" aria-label="Catch the food game board"></canvas>
+
+    <div class="controls">
+      <button id="start">▶ Start Game</button>
+      <button id="left" class="secondary">⬅ Left</button>
+      <button id="right" class="secondary">Right ➡</button>
+      <button id="restart" class="secondary">↻ Restart</button>
+    </div>
+    <p class="help">Use the ← and → arrow keys, or tap the buttons. Donuts = points. Bombs = game over!</p>
+    <div id="message" class="message" aria-live="polite">Press Start Game to play. Good luck! 🍀</div>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("board");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const timeEl = document.getElementById("time");
+    const messageEl = document.getElementById("message");
+
+    const W = canvas.width, H = canvas.height;
+    let player, food, bomb, score, timeLeft, running, ended, lastTime, spawnTimer, animationId;
+
+    function randomX(padding = 35) {
+      return padding + Math.random() * (W - padding * 2);
+    }
+
+    function resetGame() {
+      if (animationId) cancelAnimationFrame(animationId);
+      player = { x: W / 2, y: H - 48, w: 42, h: 28, speed: 6 };
+      food = { x: randomX(), y: 45, r: 15, speed: 2.2 };
+      bomb = { x: randomX(), y: -100, r: 17, speed: 3.8, active: false };
+      score = 0;
+      timeLeft = 30;
+      running = false;
+      ended = false;
+      lastTime = 0;
+      spawnTimer = 0;
+      scoreEl.textContent = score;
+      timeEl.textContent = timeLeft;
+      messageEl.textContent = "Press Start Game to play. Good luck! 🍀";
+      draw();
+    }
+
+    function drawDonut(x, y, r) {
+      ctx.save();
+      ctx.shadowColor = "rgba(239, 75, 153, .35)"; ctx.shadowBlur = 10;
+      const glaze = ctx.createLinearGradient(x-r, y-r, x+r, y+r);
+      glaze.addColorStop(0, "#ff8bc9"); glaze.addColorStop(.55, "#ff4f9a"); glaze.addColorStop(1, "#ffb05e");
+      ctx.beginPath(); ctx.fillStyle = "#b96a4a"; ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.fillStyle = glaze; ctx.arc(x, y-2, r*.88, 0, Math.PI*2); ctx.fill();
+      ctx.shadowBlur = 0; ctx.beginPath(); ctx.fillStyle = "#baf7ff"; ctx.arc(x, y, r*.34, 0, Math.PI*2); ctx.fill();
+      const sprinkles = ["#fff36b", "#63f5c4", "#8e78ff", "#ffffff", "#ffdf65", "#63e6ff"];
+      for (let i = 0; i < 9; i++) {
+        const a = i * Math.PI * 2 / 9 + .2;
+        ctx.strokeStyle = sprinkles[i % sprinkles.length]; ctx.lineWidth = 3; ctx.lineCap = "round";
+        ctx.beginPath(); ctx.moveTo(x + Math.cos(a)*r*.52, y + Math.sin(a)*r*.52);
+        ctx.lineTo(x + Math.cos(a)*r*.72, y + Math.sin(a)*r*.72); ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawBomb(x, y, r) {
+      ctx.save(); ctx.shadowColor = "rgba(54, 40, 73, .3)"; ctx.shadowBlur = 8;
+      const bombGrad = ctx.createRadialGradient(x-r*.35, y-r*.4, 2, x, y, r*1.2);
+      bombGrad.addColorStop(0, "#68758e"); bombGrad.addColorStop(.45, "#30374e"); bombGrad.addColorStop(1, "#151629");
+      ctx.fillStyle = bombGrad; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+      ctx.shadowBlur = 0; ctx.strokeStyle = "#ffb23f"; ctx.lineWidth = 5; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(x+7, y-r+3); ctx.quadraticCurveTo(x+15, y-r-12, x+21, y-r-6); ctx.stroke();
+      ctx.fillStyle = "#fff36b"; ctx.beginPath(); ctx.arc(x+21, y-r-6, 5, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = "#ff8a5b"; ctx.font = "900 18px Arial"; ctx.textAlign = "center"; ctx.fillText("!", x, y+6);
+      ctx.restore();
+    }
+
+    function drawPlayer() {
+      ctx.save();
+      ctx.shadowColor = "rgba(48, 88, 220, .3)"; ctx.shadowBlur = 12;
+      const g = ctx.createLinearGradient(player.x-player.w/2, player.y-player.h/2, player.x+player.w/2, player.y+player.h/2);
+      g.addColorStop(0, "#49e7ff"); g.addColorStop(.5, "#4285ff"); g.addColorStop(1, "#a16bff");
+      const x = player.x-player.w/2, y = player.y-player.h/2;
+      ctx.fillStyle = g; ctx.beginPath(); ctx.roundRect(x, y, player.w, player.h, 10); ctx.fill();
+      ctx.shadowBlur = 0; ctx.fillStyle = "#fff";
+      ctx.beginPath(); ctx.arc(player.x-9, player.y-3, 4, 0, Math.PI*2); ctx.arc(player.x+9, player.y-3, 4, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = "#573caa"; ctx.beginPath(); ctx.arc(player.x-9, player.y-3, 1.8, 0, Math.PI*2); ctx.arc(player.x+9, player.y-3, 1.8, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = "#573caa"; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(player.x, player.y+3, 6, .2, Math.PI-.2); ctx.stroke();
+      ctx.restore();
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+      const sky = ctx.createLinearGradient(0, 0, 0, H);
+      sky.addColorStop(0, "#9bf2ff"); sky.addColorStop(.58, "#e6f9ff"); sky.addColorStop(1, "#fff0c9");
+      ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+      // Floating candy-colored dots and twinkles
+      const colors = ["#ff8bc9", "#9e8aff", "#ffce63", "#67dfc2", "#ffffff"];
+      for (let i = 0; i < 45; i++) {
+        const x = (i * 97 + 23) % W, y = (i * 67 + 19) % (H-30);
+        ctx.globalAlpha = .45; ctx.fillStyle = colors[i % colors.length];
+        ctx.beginPath(); ctx.arc(x, y, i % 3 === 0 ? 4 : 2.5, 0, Math.PI*2); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      // Happy green ground with colorful sprinkles
+      ctx.fillStyle = "#80e4a0"; ctx.fillRect(0, H-22, W, 22);
+      ctx.fillStyle = "#fff6a8";
+      for (let x = 12; x < W; x += 36) { ctx.beginPath(); ctx.ellipse(x, H-11, 5, 2, -.4, 0, Math.PI*2); ctx.fill(); }
+      // Soft clouds
+      ctx.fillStyle = "rgba(255,255,255,.7)";
+      for (const [x,y] of [[72,70],[475,90],[340,35]]) {
+        ctx.beginPath(); ctx.arc(x,y,15,0,Math.PI*2); ctx.arc(x+17,y-7,20,0,Math.PI*2); ctx.arc(x+38,y,14,0,Math.PI*2); ctx.fill();
+      }
+      drawPlayer(); drawDonut(food.x, food.y, food.r);
+      if (bomb.active) drawBomb(bomb.x, bomb.y, bomb.r);
+      if (!running) {
+        ctx.fillStyle = "rgba(74, 42, 118, .32)"; ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = "rgba(255,255,255,.94)";
+        ctx.beginPath(); ctx.roundRect(W/2-190, H/2-56, 380, 112, 24); ctx.fill();
+        ctx.strokeStyle = "#ff9ed2"; ctx.lineWidth = 4; ctx.stroke();
+        ctx.fillStyle = "#853fc4"; ctx.textAlign = "center"; ctx.font = "800 29px Arial";
+        ctx.fillText(ended ? "GAME OVER!" : "CATCH THE DONUTS!", W/2, H/2-8);
+        ctx.fillStyle = "#ec659f"; ctx.font = "bold 18px Arial";
+        ctx.fillText(ended ? `Final score: ${score} 🍩` : "Press Start Game ✨", W/2, H/2+25);
+      }
+    }
+
+    function overlaps(a, b) {
+      return Math.abs(a.x - b.x) < (a.w || a.r) / 2 + (b.w || b.r) / 2 &&
+             Math.abs(a.y - b.y) < (a.h || a.r) / 2 + (b.h || b.r) / 2;
+    }
+
+    function endGame(reason) {
+      running = false;
+      ended = true;
+      messageEl.textContent = reason;
+      draw();
+    }
+
+    function loop(timestamp) {
+      if (!running) return;
+      if (!lastTime) lastTime = timestamp;
+      const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+      lastTime = timestamp;
+
+      food.y += food.speed * 60 * dt;
+      if (food.y > H + 15) {
+        food.x = randomX();
+        food.y = -10;
+      }
+
+      spawnTimer += dt;
+      if (!bomb.active && spawnTimer >= 5 + Math.random() * 4) {
+        bomb.active = true;
+        bomb.x = randomX();
+        bomb.y = -20;
+        spawnTimer = 0;
+      }
+      if (bomb.active) {
+        bomb.y += bomb.speed * 60 * dt;
+        if (bomb.y > H + 25) {
+          bomb.active = false;
+          spawnTimer = 0;
+        }
+      }
+
+      if (overlaps(player, food)) {
+        score++;
+        scoreEl.textContent = score;
+        food.x = randomX();
+        food.y = -10;
+        messageEl.textContent = "Yum! 🍩 +1 point!";
+      }
+      if (bomb.active && overlaps(player, bomb)) {
+        endGame("💥 You hit a bomb! Game over.");
+        return;
+      }
+
+      draw();
+      animationId = requestAnimationFrame(loop);
+    }
+
+    function startGame() {
+      if (running) return;
+      if (ended) resetGame();
+      running = true;
+      ended = false;
+      lastTime = 0;
+      messageEl.textContent = "Catch those donuts! Avoid the bombs! 🍩";
+      let lastSecond = performance.now();
+      const timerTick = () => {
+        if (!running) return;
+        const now = performance.now();
+        if (now - lastSecond >= 1000) {
+          const seconds = Math.floor((now - lastSecond) / 1000);
+          timeLeft = Math.max(0, timeLeft - seconds);
+          lastSecond += seconds * 1000;
+          timeEl.textContent = timeLeft;
+          if (timeLeft <= 0) {
+            endGame(`⏰ Time's up! Final score: ${score}`);
+            return;
+          }
+        }
+        setTimeout(timerTick, 100);
+      };
+      timerTick();
+      animationId = requestAnimationFrame(loop);
+    }
+
+    function moveLeft() {
+      if (running) player.x = Math.max(player.w / 2, player.x - 35);
+      draw();
+    }
+    function moveRight() {
+      if (running) player.x = Math.min(W - player.w / 2, player.x + 35);
+      draw();
+    }
+
+    document.getElementById("start").addEventListener("click", startGame);
+    document.getElementById("restart").addEventListener("click", () => { resetGame(); startGame(); });
+    document.getElementById("left").addEventListener("click", moveLeft);
+    document.getElementById("right").addEventListener("click", moveRight);
+    document.addEventListener("keydown", event => {
+      if (["ArrowLeft", "ArrowRight"].includes(event.key)) event.preventDefault();
+      if (event.key === "ArrowLeft") moveLeft();
+      if (event.key === "ArrowRight") moveRight();
+    });
+
+    resetGame();
+  </script>
+</body>
+</html>
